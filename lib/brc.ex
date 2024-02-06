@@ -12,7 +12,7 @@ defmodule Brc do
   """
   require Logger
 
-  @implementation_module Brc.Implementation.Alpha
+  @implementation_module Brc.Implementation.Charlie
 
   @switches [
     processes: :integer,

@@ -1,20 +1,6 @@
-defmodule Brc.Implementation.Alpha do
+defmodule Brc.Implementation.Bravo do
   @moduledoc """
-  A proposed implementation for solving the 1 billion row challenge.
-  This implementation reads the file into memory and stores it in :persistent_term.
-  When workers read chunks of the file from :persistent_term, no copy is made of the
-  chunk, which provides an exponentially lower memory profile when compared to ETS
-  storage, which copy objects on insert and lookup.
-
-  The input file is read using :prim_file, which has some performance overhead over
-  :file and allows mixed usage of pread and read_line, which is useful to build chunks
-  of the file that end in `\n` without the need for stitching the last few bytes of one
-  chunk with the first bytes of the following chunk to process correctly.
-
-  Each worker process keeps its own set of records in the process state, which is then
-  returned as the result for the Task.async/1 call. The main process then merges all
-  worker results into a single map which is then returned as part of the `run/1` callback
-  spec.
+  A variation on the Alpha solution using custom line parsing.
   """
 
   require Logger
@@ -77,7 +63,7 @@ defmodule Brc.Implementation.Alpha do
     task_results = Task.await_many(tasks, :infinity)
 
     Logger.info(
-      "all workers finished processing lines in #{Float.ceil((System.monotonic_time(:millisecond) - timestamp_task_processing) / 1000, 1)} sec"
+      "all workers finished in #{Float.ceil((System.monotonic_time(:millisecond) - timestamp_task_processing) / 1000, 1)} sec"
     )
 
     timestamp_results = System.monotonic_time(:millisecond)
@@ -88,9 +74,11 @@ defmodule Brc.Implementation.Alpha do
           {min(min1, min2), max(max1, max2), sum1 + sum2, count1 + count2}
         end)
       end)
+      |> Enum.map(fn {k, {min, max, sum, count}} -> {k, {min / 10, max / 10, sum / 10, count}} end)
+      |> Map.new()
 
     Logger.info(
-      "results fetched and printed in #{Float.ceil((System.monotonic_time(:millisecond) - timestamp_results) / 1000, 1)} sec"
+      "results fetched in #{Float.ceil((System.monotonic_time(:millisecond) - timestamp_results) / 1000, 1)} sec"
     )
 
     dbg(:erlang.memory())
@@ -119,8 +107,9 @@ defmodule Brc.Implementation.Alpha do
         throw(reason)
 
       line ->
-        [city, temp_string] = String.split(line, ";", parts: 2)
-        {temp, _} = Float.parse(temp_string)
+        city_length_bytes = count_bytes_before_delimitor(line)
+        <<city::binary-size(city_length_bytes), ";", temp_string::binary>> = line
+        temp = parse_temperature(temp_string)
 
         results =
           Map.update(Process.get(:results), city, {temp, temp, temp, 1}, fn {min, max, sum, count} ->
@@ -132,6 +121,31 @@ defmodule Brc.Implementation.Alpha do
         read_lines(device)
     end
   end
+
+  defp count_bytes_before_delimitor(binary, count \\ 0)
+
+  defp count_bytes_before_delimitor(<<";", _rest::binary>>, count), do: count
+
+  defp count_bytes_before_delimitor(<<_character, rest::binary>>, count) do
+    count_bytes_before_delimitor(rest, count + 1)
+  end
+
+  defp parse_temperature(binary, acc \\ 1)
+
+  defp parse_temperature(<<"-", rest::binary>>, _acc) do
+    parse_temperature(rest, -1)
+  end
+
+  defp parse_temperature(<<".", rest::binary>>, acc) do
+    parse_temperature(rest, acc)
+  end
+
+  defp parse_temperature(<<character, rest::binary>>, acc)
+       when character >= ?0 and character <= ?9 do
+    parse_temperature(rest, acc * 10 + (character - ?0))
+  end
+
+  defp parse_temperature(<<"\n", _rest::binary>>, acc), do: acc
 
   defp calc_offset_args(_num_bytes, num_workers, bytes_per_worker) do
     calc_offset_args_rec([], 0, num_workers, bytes_per_worker)

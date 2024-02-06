@@ -4,7 +4,10 @@ defmodule Brc.MixProject do
   def project do
     [
       app: :brc,
-      escript: [main_module: Brc],
+      escript: [
+        main_module: Brc,
+        emu_args: "+SDio 16"
+      ],
       version: "0.1.0",
       elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
